@@ -1,0 +1,9 @@
+[Unit]
+Description=Limit ice PF MSI-X vector reservation for SR-IOV
+Before=sriov-config.service
+Before=NetworkManager.service
+
+[Service]
+Type=oneshot
+RemainAfterExit=yes
+ExecStart=/usr/local/bin/ice-pf-msix-limit.sh
