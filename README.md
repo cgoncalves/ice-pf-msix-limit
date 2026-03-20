@@ -83,15 +83,13 @@ files are delivered as a MachineConfig.
    VFs are created.
 4. The script iterates over all targeted ice PFs:
    - Sets `devlink msix_vec_per_pf_max` to the desired value if it
-     differs from the current value. Tracks which physical devices
-     (by PCI slot) need a reload.
+     differs from the current value. Tracks which PFs need a reload.
    - Runs `ethtool -L combined` on each PF only if no devlink reload
      is pending for that device. When a reload is pending, the ethtool
      call is skipped because the reload will naturally cap the channels.
-5. After the iteration, the script issues `devlink dev reload` once
-   per physical device that had its driverinit parameter changed.
-   The reload is synchronous — it blocks until the driver has
-   reinitialized. This reinitializes all PFs on the physical device.
+5. After the iteration, the script issues `devlink dev reload` for
+   each PF that had its driverinit parameter changed. The reload is
+   synchronous — it blocks until the driver has reinitialized.
 6. After reload, the driver creates PF interfaces with the new MSI-X
    budget. With `msix_vec_per_pf_max=9`, the driver can only allocate
    8 combined channels (9 vectors minus 1 admin queue), so the PF
@@ -107,9 +105,8 @@ files are delivered as a MachineConfig.
 
 - `devlink driverinit` values do not persist across reboots. The script
   must set them and reload the device on every boot.
-- `devlink dev reload` reinitializes the entire physical device (all
-  PFs on the same slot), not just a single PF. The script deduplicates
-  by physical slot to avoid redundant reloads.
+- `devlink dev reload` operates per PF (PCI function). Each PF that
+  had its driverinit parameter changed must be reloaded individually.
 - `RemainAfterExit=yes` prevents the service from re-running when the
   devlink reload re-creates PF interfaces and udev fires again. This
   is safe because the driver's channel count is naturally capped by

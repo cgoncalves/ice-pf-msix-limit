@@ -38,9 +38,8 @@ DESIRED_PF_MSIX=$(( ICE_PF_COMBINED_CHANNELS + 1 ))
 
 log "Config: channels=$ICE_PF_COMBINED_CHANNELS msix_vec_per_pf_max=$DESIRED_PF_MSIX targets=${ICE_TARGET_PCI_ADDRESSES:-all}"
 
-# Collect the physical devices (by PCI slot, e.g., 0000:86:00)
-# that need a devlink reload. Multiple PFs on the same physical
-# device share a single devlink reload.
+# Collect PCI addresses that need a devlink reload.
+# Each PF (PCI function) requires its own reload.
 devices_to_reload=""
 
 for net_dir in /sys/class/net/*/device; do
@@ -79,11 +78,7 @@ for net_dir in /sys/class/net/*/device; do
         log "  Setting devlink msix_vec_per_pf_max: $current_pf_max -> $DESIRED_PF_MSIX"
         if devlink dev param set "pci/$pci_addr" \
                 name msix_vec_per_pf_max value "$DESIRED_PF_MSIX" cmode driverinit; then
-            # Track the physical device slot (strip function suffix).
-            # Only add one PCI address per physical slot.
-            if ! echo "$devices_to_reload" | grep -q "${pci_addr%.*}"; then
-                devices_to_reload="$devices_to_reload $pci_addr"
-            fi
+            devices_to_reload="$devices_to_reload $pci_addr"
         else
             log "  ERROR: devlink param set failed."
         fi
@@ -93,8 +88,7 @@ for net_dir in /sys/class/net/*/device; do
     # pending. After reload, the driver naturally caps channels at
     # msix_vec_per_pf_max - 1 because it cannot create more channels
     # than available vectors, making ethtool redundant.
-    phys_slot="${pci_addr%.*}"
-    if echo "$devices_to_reload" | grep -q "$phys_slot"; then
+    if echo "$devices_to_reload" | grep -q "$pci_addr"; then
         log "  Skipping ethtool -L (devlink reload pending, channels will be capped automatically)."
     else
         current_channels=$(ethtool -l "$iface" 2>/dev/null \
@@ -110,10 +104,8 @@ for net_dir in /sys/class/net/*/device; do
 
 done
 
-# Reload devices that had their driverinit param changed.
-# devlink dev reload reinitializes the entire physical device
-# (all PFs), so we reload once per physical slot.
-# After reload, the PF interfaces are re-created and udev fires
+# Reload each PF that had its driverinit param changed.
+# After reload, PF interfaces are re-created and udev fires
 # again. RemainAfterExit=yes prevents the service from re-running.
 for pci_addr in $devices_to_reload; do
     log "Reloading device pci/$pci_addr to apply driverinit params"
