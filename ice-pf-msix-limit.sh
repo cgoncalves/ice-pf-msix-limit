@@ -85,12 +85,8 @@ for net_dir in /sys/class/net/*/device; do
     fi
 
     # Set ethtool combined channels only when no devlink reload is
-    # pending. After reload, the driver naturally caps channels at
-    # msix_vec_per_pf_max - 1 because it cannot create more channels
-    # than available vectors, making ethtool redundant.
-    if echo "$devices_to_reload" | grep -q "$pci_addr"; then
-        log "  Skipping ethtool -L (devlink reload pending, channels will be capped automatically)."
-    else
+    # pending. Reloaded PFs get ethtool applied after the reload loop.
+    if ! echo "$devices_to_reload" | grep -q "$pci_addr"; then
         current_channels=$(ethtool -l "$iface" 2>/dev/null \
             | awk '/^Current/{f=1} f && /Combined:/{print $2; exit}' || true)
         if [ -n "$current_channels" ] && [ "$current_channels" -ne "$ICE_PF_COMBINED_CHANNELS" ]; then
@@ -100,6 +96,8 @@ for net_dir in /sys/class/net/*/device; do
         else
             log "  $iface combined channels already ${current_channels:-unknown}."
         fi
+    else
+        log "  Deferring ethtool -L until after devlink reload."
     fi
 
 done
@@ -113,5 +111,23 @@ for pci_addr in $devices_to_reload; do
         log "  Reload successful. PF interfaces will be re-created."
     else
         log "  ERROR: devlink dev reload failed for pci/$pci_addr."
+    fi
+done
+
+# After reload, set ethtool combined channels on re-created PFs.
+for pci_addr in $devices_to_reload; do
+    iface=$(basename /sys/bus/pci/devices/"$pci_addr"/net/* 2>/dev/null)
+    if [ -z "$iface" ] || [ "$iface" = "*" ]; then
+        log "WARN: No interface found for $pci_addr after reload. Skipping ethtool."
+        continue
+    fi
+    current_channels=$(ethtool -l "$iface" 2>/dev/null \
+        | awk '/^Current/{f=1} f && /Combined:/{print $2; exit}' || true)
+    if [ -n "$current_channels" ] && [ "$current_channels" -ne "$ICE_PF_COMBINED_CHANNELS" ]; then
+        log "Setting $iface combined channels: $current_channels -> $ICE_PF_COMBINED_CHANNELS"
+        ethtool -L "$iface" combined "$ICE_PF_COMBINED_CHANNELS" || \
+            log "ERROR: ethtool -L failed for $iface after reload."
+    else
+        log "$iface combined channels already ${current_channels:-unknown}."
     fi
 done
