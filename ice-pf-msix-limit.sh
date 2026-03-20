@@ -79,9 +79,9 @@ for net_dir in /sys/class/net/*/device; do
         log "  Setting devlink msix_vec_per_pf_max: $current_pf_max -> $DESIRED_PF_MSIX"
         if devlink dev param set "pci/$pci_addr" \
                 name msix_vec_per_pf_max value "$DESIRED_PF_MSIX" cmode driverinit; then
-            # Track the physical device slot (strip function suffix)
-            phys_slot="${pci_addr%.*}"
-            if ! echo "$devices_to_reload" | grep -q "$phys_slot"; then
+            # Track the physical device slot (strip function suffix).
+            # Only add one PCI address per physical slot.
+            if ! echo "$devices_to_reload" | grep -q "${pci_addr%.*}"; then
                 devices_to_reload="$devices_to_reload $pci_addr"
             fi
         else
@@ -89,21 +89,23 @@ for net_dir in /sys/class/net/*/device; do
         fi
     fi
 
-    # Set ethtool combined channels.
-    # Note: if a devlink reload follows, the driver will reinitialize
-    # the interface and this change is reset. After reload, the driver
-    # naturally caps channels at msix_vec_per_pf_max - 1 because it
-    # cannot create more channels than available vectors. This ethtool
-    # call is therefore only effective when no reload is needed (i.e.,
-    # devlink was already at the desired value).
-    current_channels=$(ethtool -l "$iface" 2>/dev/null \
-        | awk '/^Current/{f=1} f && /Combined:/{print $2; exit}' || true)
-    if [ -n "$current_channels" ] && [ "$current_channels" -ne "$ICE_PF_COMBINED_CHANNELS" ]; then
-        log "  Setting $iface combined channels: $current_channels -> $ICE_PF_COMBINED_CHANNELS"
-        ethtool -L "$iface" combined "$ICE_PF_COMBINED_CHANNELS" || \
-            log "  ERROR: ethtool -L failed."
+    # Set ethtool combined channels only when no devlink reload is
+    # pending. After reload, the driver naturally caps channels at
+    # msix_vec_per_pf_max - 1 because it cannot create more channels
+    # than available vectors, making ethtool redundant.
+    phys_slot="${pci_addr%.*}"
+    if echo "$devices_to_reload" | grep -q "$phys_slot"; then
+        log "  Skipping ethtool -L (devlink reload pending, channels will be capped automatically)."
     else
-        log "  $iface combined channels already ${current_channels:-unknown}."
+        current_channels=$(ethtool -l "$iface" 2>/dev/null \
+            | awk '/^Current/{f=1} f && /Combined:/{print $2; exit}' || true)
+        if [ -n "$current_channels" ] && [ "$current_channels" -ne "$ICE_PF_COMBINED_CHANNELS" ]; then
+            log "  Setting $iface combined channels: $current_channels -> $ICE_PF_COMBINED_CHANNELS"
+            ethtool -L "$iface" combined "$ICE_PF_COMBINED_CHANNELS" || \
+                log "  ERROR: ethtool -L failed."
+        else
+            log "  $iface combined channels already ${current_channels:-unknown}."
+        fi
     fi
 
 done

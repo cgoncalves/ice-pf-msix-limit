@@ -85,8 +85,9 @@ files are delivered as a MachineConfig.
    - Sets `devlink msix_vec_per_pf_max` to the desired value if it
      differs from the current value. Tracks which physical devices
      (by PCI slot) need a reload.
-   - Attempts `ethtool -L combined` on each PF. This change is
-     effective only when no devlink reload follows — see below.
+   - Runs `ethtool -L combined` on each PF only if no devlink reload
+     is pending for that device. When a reload is pending, the ethtool
+     call is skipped because the reload will naturally cap the channels.
 5. After the iteration, the script issues `devlink dev reload` once
    per physical device that had its driverinit parameter changed.
    The reload is synchronous — it blocks until the driver has
