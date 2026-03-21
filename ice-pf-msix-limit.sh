@@ -13,7 +13,7 @@
 CONF="/etc/ice-pf-msix-limit.conf"
 
 # Defaults
-ICE_PF_COMBINED_CHANNELS=8
+ICE_PF_COMBINED_CHANNELS=16
 ICE_TARGET_PCI_ADDRESSES=""
 
 log() { echo "ice-pf-msix-limit: $*"; logger -t ice-pf-msix-limit "$*" 2>/dev/null || true; }

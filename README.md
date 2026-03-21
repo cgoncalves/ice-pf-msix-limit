@@ -28,8 +28,9 @@ manually constraining the PF. The desired configuration requires two changes:
 2. **`ethtool -L combined`** — Reduce the PF's active channel count
    (runtime, immediate).
 
-With `msix_vec_per_pf_max=9` (8 channels + 1 admin vector), the remaining
-503 vectors are available for VFs, easily supporting 16 queues per VF.
+With `msix_vec_per_pf_max=17` (16 channels + 1 admin vector), the remaining
+495 vectors are available for VFs, easily supporting the default 16 queues
+per VF.
 
 ## PF MSI-X Budget Calculation
 
@@ -53,16 +54,17 @@ vectors_available_for_vfs = msix_table_size - msix_vec_per_pf_max
 Where `msix_table_size` is the hardware MSI-X table capacity read from the
 PCI config space (e.g., 512 for E810).
 
-**Example** with `ICE_PF_COMBINED_CHANNELS=8` on an E810 with 512 vectors:
+**Example** with `ICE_PF_COMBINED_CHANNELS=16` on an E810 with 512 vectors
+and 16 VFs (the ice driver default):
 
 ```
-msix_vec_per_pf_max       =   8 + 1 =   9
-vectors_available_for_vfs = 512 - 9 = 503
+msix_vec_per_pf_max       =  16 +  1 =  17
+vectors_available_for_vfs = 512 - 17 = 495
+vectors_per_vf            = 495 / 16 = ~30
 ```
 
-The ice driver distributes the remaining 503 vectors across VFs when they
-are created. With 16 VFs, each VF receives ~31 vectors, more than enough
-for 16 RSS queues per VF.
+Each VF receives ~30 vectors, more than enough for the default 16 RSS
+queues per VF.
 
 **Note:** The administrator does not need to specify the number of VFs or
 desired queues per VF. The approach simply constrains the PF to the minimum
@@ -146,7 +148,7 @@ before rebooting (bare metal):
 
 ```bash
 # Number of PF combined channels. devlink msix_vec_per_pf_max = this + 1.
-ICE_PF_COMBINED_CHANNELS=8
+ICE_PF_COMBINED_CHANNELS=16
 
 # Limit to specific PCI addresses (empty = all ice SR-IOV PFs).
 ICE_TARGET_PCI_ADDRESSES=
